@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Avanzata Task Operativi</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- PapaParse per il parsing CSV -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    
+    <!-- Frappe Gantt per la vista timeline -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/frappe-gantt@0.6.1/dist/frappe-gantt.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/frappe-gantt@0.6.1/dist/frappe-gantt.min.js"></script>
+
+    <!-- Lucide Icons (CORRECTED SCRIPT) -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f1f5f9; /* slate-100 */
+        }
+        .hidden-on-start { display: none; }
+        .tooltip { position: relative; display: inline-block; }
+        .tooltip .tooltip-text {
+            visibility: hidden; width: 250px; background-color: #1e293b; color: #fff;
+            text-align: left; border-radius: 6px; padding: 8px; position: absolute;
+            z-index: 10; bottom: 125%; left: 50%; margin-left: -125px;
+            opacity: 0; transition: opacity 0.3s; pointer-events: none;
+        }
+        .tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
+        
+        /* Stili Gantt */
+        .gantt .bar-completato .bar { fill: #22c55e; } /* green-500 */
+        .gantt .bar-in-corso .bar { fill: #facc15; } /* yellow-400 */
+        .gantt .bar-pianificato .bar { fill: #3b82f6; } /* blue-500 */
+        .gantt .bar-in-ritardo .bar { fill: #ef4444; } /* red-500 */
+        
+        /* Stili per l'ordinamento della tabella */
+        .sortable:hover { background-color: #f1f5f9; cursor: pointer; }
+        .sort-asc::after { content: ' ▲'; font-size: 0.7em; }
+        .sort-desc::after { content: ' ▼'; font-size: 0.7em; }
+    </style>
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+</head>
+<body class="text-slate-800">
+
+    <div class="container mx-auto p-4 md:p-6">
+        
+        <header class="mb-6">
+            <h1 class="text-3xl md:text-4xl font-bold text-slate-900">Dashboard Task Operativi</h1>
+            <p class="text-slate-600 mt-1">Carica un file CSV per analizzare lo stato di avanzamento dei task.</p>
+        </header>
+
+        <!-- Pannello Controlli -->
+        <div class="bg-white p-4 rounded-lg shadow-md mb-6">
+            <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 items-end">
+                <div>
+                    <label for="csv-file-input" class="w-full inline-block text-center cursor-pointer bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors duration-300">
+                        Carica File CSV
+                    </label>
+                    <input type="file" id="csv-file-input" class="hidden" accept=".csv">
+                </div>
+                
+                <!-- Filtri (visibili dopo il caricamento) -->
+                <div id="filters-panel" class="hidden-on-start grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 lg:col-span-4 gap-4">
+                    <select id="project-filter" class="p-2 border rounded-md bg-white shadow-sm w-full"></select>
+                    <select id="owner-filter" class="p-2 border rounded-md bg-white shadow-sm w-full"></select>
+                    
+                    <!-- Date Range Filter -->
+                    <div class="grid grid-cols-2 gap-2">
+                         <div>
+                            <label for="date-start-filter" class="text-xs text-slate-500">Da (Inizio)</label>
+                            <input type="date" id="date-start-filter" class="p-2 border rounded-md bg-white shadow-sm w-full text-sm">
+                         </div>
+                         <div>
+                            <label for="date-end-filter" class="text-xs text-slate-500">A (Fine)</label>
+                            <input type="date" id="date-end-filter" class="p-2 border rounded-md bg-white shadow-sm w-full text-sm">
+                         </div>
+                    </div>
+
+                    <div class="flex items-center justify-end gap-4">
+                        <div class="flex items-center">
+                            <input id="status-filter-late" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500">
+                            <label for="status-filter-late" class="ml-2 block text-sm text-gray-900">In Ritardo</label>
+                        </div>
+                        <div class="flex items-center">
+                            <input id="criticality-filter" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500">
+                            <label for="criticality-filter" class="ml-2 block text-sm text-gray-900">Criticità Alta 🔥</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Messaggio iniziale -->
+        <div id="initial-message" class="text-center py-12 bg-white rounded-lg shadow-md">
+             <i data-lucide="folder-search" class="mx-auto h-12 w-12 text-slate-400"></i>
+            <h3 class="mt-2 text-sm font-medium text-slate-900">Nessun file caricato</h3>
+            <p class="mt-1 text-sm text-slate-500">Seleziona un file CSV per iniziare.</p>
+        </div>
+
+        <!-- Sezione Dashboard (visibile dopo il caricamento) -->
+        <div id="dashboard-container" class="hidden-on-start">
+            <!-- Sezione KPI -->
+            <div id="kpi-section" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6"></div>
+
+            <!-- Controlli Vista -->
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold text-slate-800">Dettaglio Task</h2>
+                <div class="flex items-center bg-slate-200 rounded-lg p-1">
+                    <button id="view-table-btn" class="px-4 py-1 text-sm font-semibold rounded-md bg-white shadow text-blue-600">Tabella</button>
+                    <button id="view-gantt-btn" class="px-4 py-1 text-sm font-semibold rounded-md text-slate-600">Timeline</button>
+                </div>
+            </div>
+
+            <!-- Anteprima e Contenuto -->
+            <div id="preview-section" class="mb-6"></div>
+            <main id="dashboard-content" class="transition-opacity duration-500"></main>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- ELEMENTI DOM ---
+            const fileInput = document.getElementById('csv-file-input');
+            const initialMessage = document.getElementById('initial-message');
+            const dashboardContainer = document.getElementById('dashboard-container');
+            const filtersPanel = document.getElementById('filters-panel');
+            const projectFilter = document.getElementById('project-filter');
+            const ownerFilter = document.getElementById('owner-filter');
+            const statusFilterLate = document.getElementById('status-filter-late');
+            const criticalityFilter = document.getElementById('criticality-filter');
+            const dateStartFilter = document.getElementById('date-start-filter');
+            const dateEndFilter = document.getElementById('date-end-filter');
+            const kpiSection = document.getElementById('kpi-section');
+            const previewSection = document.getElementById('preview-section');
+            const dashboardContent = document.getElementById('dashboard-content');
+            const viewTableBtn = document.getElementById('view-table-btn');
+            const viewGanttBtn = document.getElementById('view-gantt-btn');
+
+            // --- STATO APPLICAZIONE ---
+            let allTasks = [];
+            let filteredTasks = [];
+            let currentView = 'table';
+            let ganttChart = null;
+            let sortConfig = { key: 'Deadline', direction: 'asc' };
+
+            // --- FUNZIONI DI PARSING E UTILITY ---
+            const parseItalianDate = (dateString) => {
+                if (!dateString) return null;
+                const parts = dateString.split('/');
+                if (parts.length !== 3) return null;
+                const [day, month, year] = parts.map(p => parseInt(p, 10));
+                if (isNaN(day) || isNaN(month) || isNaN(year)) return null;
+                return new Date(year, month - 1, day);
+            };
+
+            const parseFilterDate = (dateString) => {
+                if (!dateString) return null;
+                const parts = dateString.split('-'); // YYYY-MM-DD
+                if (parts.length !== 3) return null;
+                const [year, month, day] = parts.map(p => parseInt(p, 10));
+                if (isNaN(year) || isNaN(month) || isNaN(day)) return null;
+                return new Date(year, month - 1, day);
+            };
+
+            const parseFloatWithComma = (numString) => {
+                if (typeof numString !== 'string') return 0;
+                return parseFloat(numString.replace(',', '.')) || 0;
+            };
+
+            const parsePercentage = (percString) => {
+                if (typeof percString !== 'string') return 0;
+                return parseInt(percString.replace('%', ''), 10) || 0;
+            };
+
+            // --- LOGICA PRINCIPALE ---
+            fileInput.addEventListener('change', (event) => {
+                const file = event.target.files[0];
+                if (file) parseCsvFile(file);
+            });
+
+            function parseCsvFile(file) {
+                Papa.parse(file, {
+                    header: true,
+                    skipEmptyLines: true,
+                    complete: (results) => processData(results.data),
+                    error: (err) => alert(`Errore nel parsing del CSV: ${err.message}`)
+                });
+            }
+
+            function processData(data) {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+
+                allTasks = data.map(row => {
+                    const startDate = parseItalianDate(row['Start Date']);
+                    const deadline = parseItalianDate(row.Deadline);
+                    if (!row.ID || !row['Titolo Task'] || !row.Progetto || !startDate || !deadline) {
+                        return null;
+                    }
+                    
+                    const isLate = deadline < today && row.Stato !== 'Completato';
+                    
+                    return {
+                        id: row.ID,
+                        title: row['Titolo Task'],
+                        description: row['Descrizione Task'] || '',
+                        project: row.Progetto,
+                        owner: row.Owner || 'Non assegnato',
+                        startDate,
+                        deadline,
+                        status: row.Stato || 'Pianificato',
+                        criticality: row.Criticità || 'Bassa',
+                        estimatedTime: parseFloatWithComma(row['Tempo Stimato']),
+                        actualTime: parseFloatWithComma(row['Tempo Effettivo']),
+                        completion: parsePercentage(row['% Completamento']),
+                        productivity: row['Produttività Stimata'] || '',
+                        isLate
+                    };
+                }).filter(Boolean); // Rimuove i task nulli (invalidi)
+
+                if (allTasks.length > 0) {
+                    initialMessage.style.display = 'none';
+                    dashboardContainer.style.display = 'block';
+                    filtersPanel.classList.remove('hidden-on-start');
+                    populateFilters();
+                    renderDashboard();
+                } else {
+                    alert("Nessun task valido trovato nel file. Controlla che le colonne ID, Titolo Task, Progetto, Start Date, Deadline siano presenti e formattate correttamente.");
+                }
+            }
+
+            function renderDashboard() {
+                applyFiltersAndSort();
+                renderKpis();
+                renderPreview();
+                renderCurrentView();
+            }
+
+            function applyFiltersAndSort() {
+                const project = projectFilter.value;
+                const owner = ownerFilter.value;
+                const showLate = statusFilterLate.checked;
+                const showCritical = criticalityFilter.checked;
+                const startDateFilterVal = parseFilterDate(dateStartFilter.value);
+                const endDateFilterVal = parseFilterDate(dateEndFilter.value);
+
+                if (startDateFilterVal) startDateFilterVal.setHours(0, 0, 0, 0);
+                if (endDateFilterVal) endDateFilterVal.setHours(23, 59, 59, 999);
+
+                filteredTasks = allTasks.filter(task => {
+                    const projectMatch = project === 'all' || task.project === project;
+                    const ownerMatch = owner === 'all' || task.owner === owner;
+                    const lateMatch = !showLate || task.isLate;
+                    const criticalMatch = !showCritical || task.criticality === 'Alta';
+                    const startDateMatch = !startDateFilterVal || task.startDate >= startDateFilterVal;
+                    const endDateMatch = !endDateFilterVal || task.deadline <= endDateFilterVal;
+                    
+                    return projectMatch && ownerMatch && lateMatch && criticalMatch && startDateMatch && endDateMatch;
+                });
+
+                // Ordinamento
+                filteredTasks.sort((a, b) => {
+                    let valA = a[sortConfig.key];
+                    let valB = b[sortConfig.key];
+
+                    // Gestione di diversi tipi di dato per l'ordinamento
+                    if (sortConfig.key === 'criticality') {
+                        const order = { 'Alta': 0, 'Media': 1, 'Bassa': 2 };
+                        valA = order[valA];
+                        valB = order[valB];
+                    }
+
+                    if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+                    if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+                    return 0;
+                });
+            }
+
+            // --- FUNZIONI DI RENDERIZZAZIONE ---
+
+            function renderKpis() {
+                const totalTasks = filteredTasks.length;
+                const completedTasks = filteredTasks.filter(t => t.status === 'Completato').length;
+                const lateTasks = filteredTasks.filter(t => t.isLate).length;
+                const criticalTasks = filteredTasks.filter(t => t.criticality === 'Alta').length;
+                const totalEstimatedTime = filteredTasks.reduce((sum, t) => sum + t.estimatedTime, 0);
+                const totalActualTime = filteredTasks.reduce((sum, t) => sum + t.actualTime, 0);
+                const completionPercentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+                const kpis = [
+                    { label: 'Task Totali', value: totalTasks, icon: 'list-checks' },
+                    { label: '% Completati', value: `${completionPercentage}%`, icon: 'check-circle-2' },
+                    { label: 'In Ritardo', value: lateTasks, icon: 'siren', color: 'text-red-600' },
+                    { label: 'Criticità Alta', value: criticalTasks, icon: 'flame', color: 'text-orange-600' },
+                    { label: 'Ore Stimate / Effettive', value: `${totalEstimatedTime.toFixed(1)} / ${totalActualTime.toFixed(1)}`, icon: 'hourglass' }
+                ];
+                
+                kpiSection.innerHTML = kpis.map(kpi => `
+                    <div class="bg-white p-4 rounded-lg shadow flex items-center">
+                        <div class="p-3 rounded-full bg-blue-100 ${kpi.color || 'text-blue-600'}">
+                            <i data-lucide="${kpi.icon}"></i>
+                        </div>
+                        <div class="ml-4">
+                            <p class="text-sm text-slate-500">${kpi.label}</p>
+                            <p class="text-2xl font-bold text-slate-900">${kpi.value}</p>
+                        </div>
+                    </div>
+                `).join('');
+                if (typeof lucide !== 'undefined') {
+                    lucide.createIcons();
+                }
+            }
+            
+            function renderPreview() {
+                if (filteredTasks.length === 0) {
+                    previewSection.innerHTML = '';
+                    return;
+                }
+                previewSection.innerHTML = `<p class="text-sm text-slate-500 mb-2">Mostrando ${filteredTasks.length} su ${allTasks.length} task totali.</p>`;
+            }
+
+            function renderCurrentView() {
+                dashboardContent.style.opacity = 0;
+                setTimeout(() => {
+                    if (currentView === 'table') renderTableView();
+                    else renderGanttView();
+                    dashboardContent.style.opacity = 1;
+                }, 200);
+            }
+
+            function renderTableView() {
+                dashboardContent.innerHTML = `
+                    <div class="overflow-x-auto bg-white rounded-lg shadow">
+                        <table class="min-w-full divide-y divide-slate-200">
+                            <thead class="bg-slate-50">
+                                <tr>
+                                    ${createHeaderCell('Titolo Task', 'title')}
+                                    ${createHeaderCell('Progetto', 'project')}
+                                    ${createHeaderCell('Owner', 'owner')}
+                                    ${createHeaderCell('Deadline', 'deadline')}
+                                    ${createHeaderCell('Criticità', 'criticality')}
+                                    ${createHeaderCell('% Compl.', 'completion')}
+                                    ${createHeaderCell('Stato', 'status')}
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-200">
+                                ${filteredTasks.map(createTaskRow).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+                if(filteredTasks.length === 0) {
+                    dashboardContent.innerHTML = `<div class="text-center py-10 bg-white rounded-lg shadow"><p>Nessun task corrisponde ai filtri selezionati.</p></div>`;
+                } else {
+                    if (typeof lucide !== 'undefined') {
+                        lucide.createIcons();
+                    }
+                }
+                // Aggiungi event listener agli header per l'ordinamento
+                document.querySelectorAll('.sortable').forEach(header => {
+                    header.addEventListener('click', () => {
+                        const key = header.dataset.sortKey;
+                        if (sortConfig.key === key) {
+                            sortConfig.direction = sortConfig.direction === 'asc' ? 'desc' : 'asc';
+                        } else {
+                            sortConfig.key = key;
+                            sortConfig.direction = 'asc';
+                        }
+                        renderDashboard();
+                    });
+                });
+            }
+            
+            function createHeaderCell(label, key) {
+                const isSorted = sortConfig.key === key;
+                const sortClass = isSorted ? (sortConfig.direction === 'asc' ? 'sort-asc' : 'sort-desc') : '';
+                return `<th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider sortable ${sortClass}" data-sort-key="${key}">${label}</th>`;
+            }
+
+            function createTaskRow(task) {
+                const statusInfo = getStatusInfo(task);
+                const criticalityIcon = task.criticality === 'Alta' ? `<i data-lucide="flame" class="inline-block h-4 w-4 text-orange-500"></i>` : '';
+                
+                return `
+                    <tr class="hover:bg-slate-50">
+                        <td class="px-4 py-4 whitespace-nowrap">
+                            <div class="tooltip">
+                                <span class="font-medium text-slate-900">${task.title}</span>
+                                <div class="tooltip-text">${task.description || 'Nessuna descrizione.'}</div>
+                            </div>
+                        </td>
+                        <td class="px-4 py-4 whitespace-nowrap text-sm text-slate-500">${task.project}</td>
+                        <td class="px-4 py-4 whitespace-nowrap text-sm text-slate-500">${task.owner}</td>
+                        <td class="px-4 py-4 whitespace-nowrap text-sm text-slate-500">${task.deadline.toLocaleDateString('it-IT')}</td>
+                        <td class="px-4 py-4 whitespace-nowrap text-sm text-slate-500 text-center">${criticalityIcon}</td>
+                        <td class="px-4 py-4 whitespace-nowrap">
+                            <div class="w-full bg-slate-200 rounded-full h-2.5">
+                                <div class="${statusInfo.progressBg} h-2.5 rounded-full" style="width: ${task.completion}%"></div>
+                            </div>
+                        </td>
+                        <td class="px-4 py-4 whitespace-nowrap">
+                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusInfo.badgeClasses}">
+                                ${statusInfo.text}
+                            </span>
+                        </td>
+                    </tr>
+                `;
+            }
+            
+            function renderGanttView() {
+                dashboardContent.innerHTML = '<div id="gantt-container" class="bg-white p-4 rounded-lg shadow"><svg id="gantt"></svg></div>';
+                if (filteredTasks.length === 0) {
+                    document.getElementById('gantt-container').innerHTML = `<div class="text-center py-10"><p>Nessun task corrisponde ai filtri selezionati.</p></div>`;
+                    return;
+                }
+
+                const formatDateForGantt = (date) => {
+                    const year = date.getFullYear();
+                    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+                    const day = date.getDate().toString().padStart(2, '0');
+                    return `${year}-${month}-${day}`;
+                };
+                
+                // Raggruppa i task per progetto
+                const tasksByProject = filteredTasks.reduce((acc, task) => {
+                    if (!acc[task.project]) acc[task.project] = [];
+                    acc[task.project].push(task);
+                    return acc;
+                }, {});
+
+                let ganttTasks = [];
+                Object.keys(tasksByProject).sort().forEach(project => {
+                    const projectTasks = tasksByProject[project];
+                    // FIX: Skip project group if it has no tasks after filtering
+                    if (projectTasks.length === 0) {
+                        return;
+                    }
+
+                    // Aggiungi una barra per il progetto
+                    const projectStart = new Date(Math.min(...projectTasks.map(t => t.startDate)));
+                    const projectEnd = new Date(Math.max(...projectTasks.map(t => t.deadline)));
+                    projectEnd.setDate(projectEnd.getDate() + 1);
+
+                    ganttTasks.push({
+                        id: `proj_${project}`,
+                        name: project,
+                        start: formatDateForGantt(projectStart),
+                        end: formatDateForGantt(projectEnd),
+                        progress: 100,
+                        custom_class: 'bar-pianificato' // Un colore generico per il gruppo
+                    });
+
+                    // Aggiungi i task di quel progetto
+                    projectTasks.forEach((task, i) => {
+                        const ganttEndDate = new Date(task.deadline);
+                        ganttEndDate.setDate(ganttEndDate.getDate() + 1);
+                        const statusClass = (task.isLate ? 'in-ritardo' : task.status.toLowerCase()).replace(' ', '-');
+
+                        ganttTasks.push({
+                            id: `task_${task.id}_${i}`,
+                            name: task.title,
+                            start: formatDateForGantt(task.startDate),
+                            end: formatDateForGantt(ganttEndDate),
+                            progress: task.completion,
+                            dependencies: `proj_${project}`,
+                            custom_class: `bar-${statusClass}`,
+                            original_task: task
+                        });
+                    });
+                });
+
+                if (ganttChart) {
+                    ganttChart.destroy();
+                    ganttChart = null;
+                }
+
+                ganttChart = new Gantt("#gantt", ganttTasks, {
+                    view_modes: ['Day', 'Week', 'Month'],
+                    view_mode: 'Week',
+                    language: 'it',
+                    custom_popup_html: (task) => {
+                        const original = task.original_task;
+                        if (!original) return `<div class="p-2"><strong>Progetto: ${task.name}</strong></div>`;
+                        return `
+                            <div class="p-2 text-sm">
+                                <strong class="block">${original.title}</strong>
+                                <span class="block">Owner: ${original.owner}</span>
+                                <span class="block">Dal ${original.startDate.toLocaleDateString('it-IT')} al ${original.deadline.toLocaleDateString('it-IT')}</span>
+                                <span class="block font-semibold">Stato: ${original.isLate ? 'In Ritardo' : original.status}</span>
+                            </div>
+                        `;
+                    }
+                });
+            }
+
+
+            // --- FUNZIONI HELPER E DI POPOLAMENTO ---
+            function getStatusInfo(task) {
+                if (task.isLate) {
+                    return { text: 'In Ritardo', badgeClasses: 'bg-red-100 text-red-800', progressBg: 'bg-red-600' };
+                }
+                switch (task.status) {
+                    case 'Completato': return { text: 'Completato', badgeClasses: 'bg-green-100 text-green-800', progressBg: 'bg-green-600' };
+                    case 'In corso': return { text: 'In Corso', badgeClasses: 'bg-yellow-100 text-yellow-800', progressBg: 'bg-yellow-500' };
+                    case 'Pianificato': return { text: 'Pianificato', badgeClasses: 'bg-blue-100 text-blue-800', progressBg: 'bg-blue-600' };
+                    default: return { text: 'Sconosciuto', badgeClasses: 'bg-slate-100 text-slate-800', progressBg: 'bg-slate-500' };
+                }
+            }
+
+            function populateFilters() {
+                const projects = ['all', ...new Set(allTasks.map(t => t.project))];
+                const owners = ['all', ...new Set(allTasks.map(t => t.owner))];
+                
+                projectFilter.innerHTML = projects.map(p => `<option value="${p}">${p === 'all' ? 'Tutti i Progetti' : p}</option>`).join('');
+                ownerFilter.innerHTML = owners.map(o => `<option value="${o}">${o === 'all' ? 'Tutti gli Owner' : o}</option>`).join('');
+            }
+
+            // --- EVENT LISTENER UI ---
+            [projectFilter, ownerFilter, statusFilterLate, criticalityFilter, dateStartFilter, dateEndFilter].forEach(el => {
+                el.addEventListener('change', renderDashboard);
+            });
+
+            viewTableBtn.addEventListener('click', () => {
+                currentView = 'table';
+                viewTableBtn.classList.add('bg-white', 'shadow', 'text-blue-600');
+                viewGanttBtn.classList.remove('bg-white', 'shadow', 'text-blue-600');
+                renderCurrentView();
+            });
+
+            viewGanttBtn.addEventListener('click', () => {
+                currentView = 'gantt';
+                viewGanttBtn.classList.add('bg-white', 'shadow', 'text-blue-600');
+                viewTableBtn.classList.remove('bg-white', 'shadow', 'text-blue-600');
+                renderCurrentView();
+            });
+            
+            // Inizializza le icone una volta che il DOM è pronto
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+            }
+        });
+    </script>
+</body>
+</html>

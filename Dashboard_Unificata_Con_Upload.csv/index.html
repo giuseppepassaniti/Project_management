@@ -1,0 +1,104 @@
+
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <title>Homepage Progetti</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans p-6">
+    <div class="max-w-3xl mx-auto">
+        <h1 class="text-3xl font-bold mb-4">Dashboard Progetti Ingegneria</h1>
+        <p class="mb-4 text-slate-600">Seleziona un progetto per visualizzare le dashboard associate.</p>
+
+        
+        <div class="mb-6">
+            <label for="csv-progetti-input" class="block mb-2 font-semibold">Oppure carica un file progetti.csv:</label>
+            <input type="file" id="csv-progetti-input" accept=".csv" class="p-2 border rounded w-full">
+        </div>
+<label for="project-select" class="block mb-2 font-semibold">Scegli un progetto:</label>
+        <select id="project-select" class="w-full mb-6 p-2 rounded border">
+            <option value="">-- Seleziona un progetto --</option>
+        </select>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <a href="#" class="dashboard-link bg-white shadow p-4 rounded hover:bg-blue-50 transition" data-page="decisionlog.html">Log Decisioni</a>
+            <a href="#" class="dashboard-link bg-white shadow p-4 rounded hover:bg-blue-50 transition" data-page="Varianti.html">Varianti Progettuali</a>
+            <a href="#" class="dashboard-link bg-white shadow p-4 rounded hover:bg-blue-50 transition" data-page="Imprevisti.html">Imprevisti</a>
+            <a href="#" class="dashboard-link bg-white shadow p-4 rounded hover:bg-blue-50 transition" data-page="Task.html">Task Operativi</a>
+            <a href="#" class="dashboard-link bg-white shadow p-4 rounded hover:bg-blue-50 transition" data-page="Milestone.html">Milestone</a>
+        </div>
+    </div>
+
+    <script>
+
+        let fileInput = document.getElementById("csv-progetti-input");
+        let select = document.getElementById("project-select");
+
+        function populateProjectSelectFromCSV(text) {
+            const lines = text.trim().split("\n").slice(1);
+            const seen = new Set();
+            lines.forEach(line => {
+                const cols = line.split(",");
+                const project = cols[0].trim();
+                if (project && !seen.has(project)) {
+                    seen.add(project);
+                    const opt = document.createElement("option");
+                    opt.value = project;
+                    opt.textContent = project;
+                    select.appendChild(opt);
+                }
+            });
+        }
+
+        // Caricamento da file uploadato
+        fileInput.addEventListener("change", e => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => {
+                select.innerHTML = '<option value="">-- Seleziona un progetto --</option>';
+                populateProjectSelectFromCSV(e.target.result);
+            };
+            reader.readAsText(file);
+        });
+
+        // Caricamento default da file statico
+        fetch("data/progetti.csv")
+            .then(res => res.text())
+            .then(text => populateProjectSelectFromCSV(text));
+
+            .then(res => res.text())
+            .then(text => {
+                const lines = text.trim().split("\n").slice(1); // ignora intestazione
+                const select = document.getElementById("project-select");
+                const seen = new Set();
+                lines.forEach(line => {
+                    const cols = line.split(",");
+                    const project = cols[0].trim();
+                    if (project && !seen.has(project)) {
+                        seen.add(project);
+                        const opt = document.createElement("option");
+                        opt.value = project;
+                        opt.textContent = project;
+                        select.appendChild(opt);
+                    }
+                });
+            });
+
+        document.querySelectorAll(".dashboard-link").forEach(link => {
+            link.addEventListener("click", (e) => {
+                e.preventDefault();
+                const project = document.getElementById("project-select").value;
+                if (!project) {
+                    alert("Seleziona prima un progetto.");
+                    return;
+                }
+                localStorage.setItem("selectedProject", project);
+                window.location.href = "dashboard/" + link.dataset.page;
+            });
+        });
+    </script>
+</body>
+</html>
