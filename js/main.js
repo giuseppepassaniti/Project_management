@@ -26,7 +26,7 @@ document.getElementById('btn-carica').addEventListener('click', () => {
     const data = { progetti, milestone, task, imprevisti, varianti, decisioni };
     renderProjects(data);
   }).catch(err => {
-    console.error('Errore nel parsing:', err);
-    alert('Errore nel caricamento dei file.');
-  });
+  console.error('❌ Errore nel parsing dei CSV:', err);
+  alert('Errore nel caricamento dei file. Controlla la console (F12).');
+});
 });
